@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: .
+      args:
+        SERVICE: gateway
+    ports:
+      - "80:8080" # Mapping port 80 publik ke 8080 internal gateway
+    environment:
+      - HTTP_PORT=8080
+      - SHORTENER_ADDR=shortener:50051
+      - REDIRECT_ADDR=redirect:50052
+    depends_on:
+      - shortener
+      - redirect
+
+  shortener:
+    build:
+      context: .
+      args:
+        SERVICE: shortener-service
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_ADDR=redis:6379
+      - GRPC_PORT=50051
+      - BASE_REDIRECT_URL=http://165.245.177.66 # Menggunakan IP Droplet-mu
+    depends_on:
+      - redis
+
+  redirect:
+    build:
+      context: .
+      args:
+        SERVICE: redirect-service
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_ADDR=redis:6379
+      - GRPC_PORT=50052
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
