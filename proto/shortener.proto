@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package shortener;
+
+option go_package = "github.com/akuaruu/url-shortener/proto/gen/shortener";
+
+// ShortenerService handles creation and lookup of shortened URLs.
+service ShortenerService {
+  // CreateShortURL generates a new short code for the given original URL.
+  rpc CreateShortURL(CreateShortURLRequest) returns (CreateShortURLResponse);
+
+  // GetURLDetails returns metadata for an existing short URL.
+  rpc GetURLDetails(GetURLDetailsRequest) returns (GetURLDetailsResponse);
+}
+
+message CreateShortURLRequest {
+  string original_url = 1;
+  // Optional. 0 means the short URL never expires.
+  int64 ttl_seconds = 2;
+}
+
+message CreateShortURLResponse {
+  string short_code   = 1;
+  string short_url = 2;
+  string original_url = 3;
+  // RFC3339 timestamp. Empty if ttl_seconds was 0.
+  string expires_at = 4;
+  string created_at = 5;
+}
+
+message GetURLDetailsRequest {
+  string short_code = 1;
+}
+
+message GetURLDetailsResponse {
+  string original_url = 1;
+  string created_at   = 2;
+  string expires_at   = 3;
+  int64  click_count  = 4;
+}
