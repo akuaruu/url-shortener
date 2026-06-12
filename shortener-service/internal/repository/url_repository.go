@@ -112,6 +112,11 @@ type URLRecord struct {
 	ClickCount  int64
 }
 
+// IsExpired reports whether the URL has passed its expiry time.
+func (u *URLRecord) IsExpired(now time.Time) bool {
+	return u.ExpiresAt != nil && now.After(*u.ExpiresAt)
+}
+
 // cacheTTL returns the Redis TTL for a cache entry, capped at 24h, per the
 // caching strategy in PLANNING.md (cache TTL must not exceed URL expiry).
 func cacheTTL(expiresAt *time.Time) time.Duration {
