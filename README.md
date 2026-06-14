@@ -84,5 +84,5 @@ This repository currently contains the planning artifacts and project skeleton:
 - [x] Database migrations (ERD implementation)
 - [x] gRPC stub generation (run `make proto` locally)
 - [x] Service implementations (Shortener, Redirect, Gateway)
-- [ ] Docker Compose setup
-- [ ] Load testing & benchmark results
+- [x] Docker Compose setup
+- [x] Load testing & benchmark results

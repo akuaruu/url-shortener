@@ -22,14 +22,19 @@ var ErrNotFound = repository.ErrNotFound
 // ShortenerService implements the business logic for creating and
 // retrieving shortened URLs.
 type ShortenerService struct {
-	repo            *repository.URLRepository
+	repo            Repository
 	baseRedirectURL string
+}
+
+type Repository interface {
+	CreateURL(ctx context.Context, originalURL string, expiresAt *time.Time) (*repository.URLRecord, error)
+	GetByShortCode(ctx context.Context, code string) (*repository.URLRecord, error)
 }
 
 // NewShortenerService constructs a ShortenerService.
 // baseRedirectURL is prefixed to short codes when building the full short URL
 // (e.g. "https://short.ly").
-func NewShortenerService(repo *repository.URLRepository, baseRedirectURL string) *ShortenerService {
+func NewShortenerService(repo Repository, baseRedirectURL string) *ShortenerService {
 	return &ShortenerService{
 		repo:            repo,
 		baseRedirectURL: strings.TrimRight(baseRedirectURL, "/"),

@@ -27,7 +27,7 @@ func main() {
 	// GRPC_PORT:    ":50052"
 	dbURL := mustEnv("DATABASE_URL")
 	redisAddr := mustEnv("REDIS_ADDR")
-	grpcPort := envOr("GRPC_PORT", ":50052")
+	grpcPort := envOr("GRPC_PORT", "50052")
 
 	ctx := context.Background()
 
@@ -70,7 +70,7 @@ func main() {
 	// Remove in production if not needed.
 	reflection.Register(grpcServer)
 
-	lis, err := net.Listen("tcp", grpcPort)
+	lis, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
 		log.Fatalf("failed to listen on %s: %v", grpcPort, err)
 	}
