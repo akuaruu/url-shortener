@@ -24,6 +24,8 @@ const (
 type ResolveRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ShortCode     string                 `protobuf:"bytes,1,opt,name=short_code,json=shortCode,proto3" json:"short_code,omitempty"`
+	UserAgent     string                 `protobuf:"bytes,2,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
+	Ip            string                 `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -61,6 +63,20 @@ func (*ResolveRequest) Descriptor() ([]byte, []int) {
 func (x *ResolveRequest) GetShortCode() string {
 	if x != nil {
 		return x.ShortCode
+	}
+	return ""
+}
+
+func (x *ResolveRequest) GetUserAgent() string {
+	if x != nil {
+		return x.UserAgent
+	}
+	return ""
+}
+
+func (x *ResolveRequest) GetIp() string {
+	if x != nil {
+		return x.Ip
 	}
 	return ""
 }
@@ -129,10 +145,13 @@ var File_proto_redirect_proto protoreflect.FileDescriptor
 
 const file_proto_redirect_proto_rawDesc = "" +
 	"\n" +
-	"\x14proto/redirect.proto\x12\bredirect\"/\n" +
+	"\x14proto/redirect.proto\x12\bredirect\"^\n" +
 	"\x0eResolveRequest\x12\x1d\n" +
 	"\n" +
-	"short_code\x18\x01 \x01(\tR\tshortCode\"d\n" +
+	"short_code\x18\x01 \x01(\tR\tshortCode\x12\x1d\n" +
+	"\n" +
+	"user_agent\x18\x02 \x01(\tR\tuserAgent\x12\x0e\n" +
+	"\x02ip\x18\x03 \x01(\tR\x02ip\"d\n" +
 	"\x0fResolveResponse\x12!\n" +
 	"\foriginal_url\x18\x01 \x01(\tR\voriginalUrl\x12\x14\n" +
 	"\x05found\x18\x02 \x01(\bR\x05found\x12\x18\n" +

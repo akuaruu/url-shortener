@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,8 +21,16 @@ const (
 	maxCacheTTL    = 24 * time.Hour
 )
 
+// cachedRecord adalah struktur yang disimpan sebagai value di Redis.
+// Sengaja dibuat minimal untuk menjaga memory footprint cache tetap kecil.
+type cachedRecord struct {
+	ID          int64  `json:"i"`
+	OriginalURL string `json:"u"`
+}
+
 // URLRecord holds the resolved data for a given short code.
 type URLRecord struct {
+	ID          int64
 	OriginalURL string
 	ExpiresAt   *time.Time
 }
@@ -57,30 +66,36 @@ func NewRedirectRepository(db *pgxpool.Pool, rdb *redis.Client) *RedirectReposit
 func (r *RedirectRepository) Resolve(ctx context.Context, shortCode string) (*URLRecord, error) {
 	key := cacheKeyPrefix + shortCode
 
-	// Step 1: Redis lookup.
+	// Step 1: Redis lookup
 	cached, err := r.rdb.Get(ctx, key).Result()
 	if err == nil {
-		// Cache hit. TTL on this key was set to match the URL's remaining lifetime,
-		// so a hit here guarantees the URL is still valid — no expiry check needed.
-		return &URLRecord{OriginalURL: cached}, nil
-	}
-	if !errors.Is(err, redis.Nil) {
-		// Unexpected Redis error (connection refused, timeout, etc.).
-		// Fall through to the DB; this upholds the resilience guarantee:
-		// the system keeps working without Redis.
-		// Production note: emit a warning metric/log here.
-		_ = err
+		var cr cachedRecord
+		if jsonErr := json.Unmarshal([]byte(cached), &cr); jsonErr == nil {
+			return &URLRecord{
+				ID:          cr.ID,
+				OriginalURL: cr.OriginalURL,
+			}, nil
+		}
+		// JSON parse gagal (mungkin data lama format plain string) — fall through ke DB
 	}
 
-	// Step 2: PostgreSQL fallback.
+	if !errors.Is(err, redis.Nil) {
+		_ = err // Redis error non-fatal, fall through
+	}
+
+	// Step 2: PostgreSQL fallback
 	const q = `
-		SELECT original_url, expires_at
-		FROM urls
-		WHERE short_code = $1
-		LIMIT 1
-	`
+        SELECT id, original_url, expires_at
+        FROM urls
+        WHERE short_code = $1
+        LIMIT 1
+    `
 	var record URLRecord
-	err = r.db.QueryRow(ctx, q, shortCode).Scan(&record.OriginalURL, &record.ExpiresAt)
+	err = r.db.QueryRow(ctx, q, shortCode).Scan(
+		&record.ID,
+		&record.OriginalURL,
+		&record.ExpiresAt,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -88,9 +103,7 @@ func (r *RedirectRepository) Resolve(ctx context.Context, shortCode string) (*UR
 		return nil, fmt.Errorf("repository: db query failed: %w", err)
 	}
 
-	// Step 3: Populate cache — only for URLs that are still valid.
-	// An expired URL will never be cached; the next request will always hit the DB
-	// and the service layer will handle returning the 410 Gone response.
+	// Step 3: Populate cache dengan format JSON baru
 	if !record.IsExpired() {
 		ttl := maxCacheTTL
 		if record.ExpiresAt != nil {
@@ -98,21 +111,14 @@ func (r *RedirectRepository) Resolve(ctx context.Context, shortCode string) (*UR
 				ttl = remaining
 			}
 		}
-		// Ignore Redis write errors — cache is best-effort; DB is the source of truth.
-		_ = r.rdb.Set(ctx, key, record.OriginalURL, ttl).Err()
+
+		if payload, jsonErr := json.Marshal(cachedRecord{
+			ID:          record.ID,
+			OriginalURL: record.OriginalURL,
+		}); jsonErr == nil {
+			_ = r.rdb.Set(ctx, key, payload, ttl).Err()
+		}
 	}
 
 	return &record, nil
-}
-
-// IncrementClickCount atomically increments the Redis click counter for a short code.
-// These counters are periodically synced to the click_count column in PostgreSQL
-// by a background job (not implemented in this package), avoiding write amplification
-// on the critical redirect path.
-func (r *RedirectRepository) IncrementClickCount(ctx context.Context, shortCode string) error {
-	key := clickKeyPrefix + shortCode
-	if err := r.rdb.Incr(ctx, key).Err(); err != nil {
-		return fmt.Errorf("repository: incr click count: %w", err)
-	}
-	return nil
 }

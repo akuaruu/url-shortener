@@ -18,6 +18,7 @@ import (
 	"github.com/akuaruu/url-shortener/redirect-service/internal/handler"
 	"github.com/akuaruu/url-shortener/redirect-service/internal/repository"
 	"github.com/akuaruu/url-shortener/redirect-service/internal/service"
+	"github.com/akuaruu/url-shortener/redirect-service/internal/worker"
 )
 
 func main() {
@@ -59,12 +60,16 @@ func main() {
 
 	// ─── Wire dependencies
 	repo := repository.NewRedirectRepository(db, rdb)
-	svc := service.NewRedirectService(repo)
+	svc := service.NewRedirectService(repo, rdb)
 	h := handler.NewRedirectHandler(svc)
 
 	// ─── gRPC server
 	grpcServer := grpc.NewServer()
 	redirectpb.RegisterRedirectServiceServer(grpcServer, h)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	go worker.StartClickSyncWorker(workerCtx, db, rdb, 30*time.Second)
 
 	// reflection enables grpcurl-based introspection in dev/staging.
 	// Remove in production if not needed.

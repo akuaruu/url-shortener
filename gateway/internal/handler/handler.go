@@ -143,6 +143,8 @@ func (h *GatewayHandler) Redirect(c echo.Context) error {
 
 	res, err := h.redirect.ResolveShortCode(c.Request().Context(), &redirectpb.ResolveRequest{
 		ShortCode: shortCode,
+		UserAgent: c.Request().UserAgent(), // tambah
+		Ip:        c.RealIP(),              // tambah
 	})
 	if err != nil {
 		return grpcErrToHTTP(c, err)

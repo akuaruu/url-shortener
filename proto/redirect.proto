@@ -12,7 +12,9 @@ service RedirectService {
 }
 
 message ResolveRequest {
-  string short_code = 1;
+    string short_code  = 1;
+    string user_agent  = 2;  
+    string ip          = 3;  
 }
 
 message ResolveResponse {

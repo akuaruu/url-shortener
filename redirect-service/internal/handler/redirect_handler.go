@@ -2,7 +2,10 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,7 +33,12 @@ func (h *RedirectHandler) ResolveShortCode(ctx context.Context, req *redirectpb.
 		return nil, status.Error(codes.InvalidArgument, "short_code is required")
 	}
 
-	result, err := h.svc.ResolveShortCode(ctx, req.GetShortCode())
+	meta := service.ClickMeta{
+		UserAgent: req.GetUserAgent(),
+		IPHash:    hashIP(req.GetIp()),
+	}
+
+	result, err := h.svc.ResolveShortCode(ctx, req.GetShortCode(), meta)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "short code not found")
@@ -46,4 +54,14 @@ func (h *RedirectHandler) ResolveShortCode(ctx context.Context, req *redirectpb.
 		Found:       true,
 		Expired:     result.Expired,
 	}, nil
+}
+
+func hashIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(ip)))[:16]
 }

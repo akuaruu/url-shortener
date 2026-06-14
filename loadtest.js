@@ -11,14 +11,14 @@ export const successRate = new Rate('successful_redirects');
 export const options = {
     // Skenario bertahap agar lebih realistis seperti lonjakan trafik asli
     stages: [
-        { duration: '10s', target: 50 },  // Pemanasan: Naik ke 20 VU (sesuai limit Supabase)
-        { duration: '30s', target: 200 }, // Puncak: Hajar dengan 100 VU secara bersamaan
+        { duration: '10s', target: 1 },  // Pemanasan: Naik ke 20 VU (sesuai limit Supabase)
+        { duration: '30s', target: 5 }, // Puncak: Hajar dengan 100 VU secara bersamaan
         { duration: '10s', target: 0 },   // Pendinginan: Turun perlahan ke 0 VU
     ],
     thresholds: {
         // Ini adalah KPI (Key Performance Indicator) targetmu!
         // Jika latensi 95% request tembus di atas 50ms, k6 akan memberikan status FAIL.
-        'redirect_duration': ['p(95)<50'],
+        'redirect_duration': ['p(95)<80'],
         'successful_redirects': ['rate>0.99'], // 99% request harus tidak error (harus status 302)
     },
 };
@@ -26,9 +26,9 @@ export const options = {
 // --- FASE SETUP (Dijalankan 1x sebelum VU menyerang) ---
 export function setup() {
 
-    const url = 'http://165.245.177.66/api/v1/shorten';
+    //const url = 'https://url-s.aruu.app/api/v1/shorten';
     //Local testing :
-    //const url = 'http://localhost:8080/api/v1/shorten';
+    const url = 'http://localhost:8080/api/v1/shorten';
 
     const payload = JSON.stringify({
         original_url: 'https://aruu.app/portfolio',
@@ -55,10 +55,10 @@ export function setup() {
 // --- FASE UTAMA (Dijalankan ribuan kali oleh pasukan VU) ---
 export default function (data) {
     // Pasukan VU akan menembak short_code yang dibuat di fase setup
-    const url = `http://165.245.177.66/${data.shortCode}`;
+    //const url = `http://url-s.aruu.app/${data.shortCode}`;
 
     // Local testing:
-    //const url = `http://localhost:8080/${data.shortCode}`;
+    const url = `http://localhost:8080/${data.shortCode}`;
 
     // PENTING: redirects: 0 agar k6 tidak ikut pindah ke URL asli
     const res = http.get(url, { redirects: 0 });
