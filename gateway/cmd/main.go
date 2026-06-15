@@ -76,18 +76,30 @@ func main() {
 
 	// Middleware stack — order matters.
 	//
-	// RequestID first so every subsequent middleware and log line carries the ID.
+	// CORS must be first: browser preflight (OPTIONS) must receive CORS headers
+	// before any other middleware short-circuits the request.
+	// RequestID next so every log line carries the ID.
 	// Logger after RequestID so request IDs appear in access logs.
-	// Recover last in the stack (nearest to handler) so panics don't bypass logging.
+	// Recover nearest to handler so panics don't bypass logging.
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodOptions, // required: browser always sends OPTIONS preflight first
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType, // required: fetch sends Content-Type: application/json
+			echo.HeaderAccept,
+		},
+		MaxAge: 86400, // cache preflight result for 24h — reduces round-trips
+	}))
 	e.Use(middleware.RequestID())
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `{"time":"${time_rfc3339}","id":"${id}","method":"${method}","uri":"${uri}","status":${status},"latency_ms":${latency}}` + "\n",
 	}))
 	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{http.MethodGet, http.MethodPost},
-	}))
 
 	// Routes
 	h := handler.NewGatewayHandler(shortenerClient, redirectClient)
