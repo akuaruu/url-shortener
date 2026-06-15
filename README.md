@@ -229,15 +229,16 @@ Production latency is dominated by network round-trip (laptop to Cloudflare to V
 
 ### Evidence from load test: click_logs per hour
 
-The following was queried from the production database immediately after all three tests completed:
+The following was queried from the production Supabase database after all tests completed:
 
 | hour (UTC) | click events |
 |---|---|
+| 2026-06-15 00:00 | 236,719 |
 | 2026-06-15 01:00 | 43,942 |
-| 2026-06-15 00:00 | 81,719 |
 | 2026-06-14 17:00 | 7 |
+| 2026-06-14 16:00 | 1 |
 
-The two spikes correspond directly to the three test runs. All click events were written to PostgreSQL via the background batch sync from Redis.
+The `00:00` spike contains the baseline and stress test traffic. Both tests ran on localhost but connect to the production Supabase instance, so all click events are persisted there. The `01:00` spike is the production test firing directly at the live VPS via Cloudflare. All click events were written via the background batch sync from Redis.
 
 ---
 
@@ -295,21 +296,21 @@ The partial index on `expires_at` is a deliberate choice. Expiry-related queries
 
 ## Database Overview
 
-Snapshot taken after benchmark tests completed.
+Snapshot queried from Supabase after all benchmark tests completed and the background sync worker had fully flushed. Full query results are in [`docs/k6_testing/database/database-overview.md`](docs/k6_testing/database/database-overview.md).
 
 ### System overview
 
 | total_urls | permanent_urls | active_with_expiry | total_cached_clicks | total_click_events |
 |---|---|---|---|---|
-| 39 | 0 | 39 | 123,669 | 123,669 |
+| 40 | 0 | 40 | 280,672 | 280,672 |
 
-`counter_cached` and `total_click_events` matching confirms that the background batch sync between Redis and PostgreSQL is consistent with zero data loss.
+`total_cached_clicks` (from the `urls.click_count` column, maintained by the background batch sync) and `total_click_events` (actual rows in `click_logs`) are equal, confirming zero data loss across all test runs.
 
 ### Top URLs by click count
 
 | short_code | click_count | created_on | expires_on |
 |---|---|---|---|
-| 9 | 59,585 | 2026-06-15 | 2026-06-16 |
+| 9 | 214,585 | 2026-06-15 | 2026-06-16 |
 | 8 | 22,127 | 2026-06-15 | 2026-06-16 |
 | c | 4,484 | 2026-06-15 | 2026-06-16 |
 | b | 4,476 | 2026-06-15 | 2026-06-16 |
@@ -320,18 +321,50 @@ Snapshot taken after benchmark tests completed.
 | Y | 4,357 | 2026-06-15 | 2026-06-16 |
 | d | 4,351 | 2026-06-15 | 2026-06-16 |
 
-Short codes `9` and `8` were used in the baseline and stress tests (single-code setup). The remaining codes (`c`, `b`, `Z`, etc.) were distributed across 10 randomized codes in the production test, which explains the relatively even distribution.
+Short code `9` accumulated the most clicks because it was the primary target during the baseline and stress tests before the multi-code randomization was added. Short codes `c` through `d` show an even distribution, which is the expected result of the 10-code randomized setup used in the production test.
+
+### Click events per hour (load test evidence)
+
+| hour (UTC) | click events |
+|---|---|
+| 2026-06-15 00:00 | 236,719 |
+| 2026-06-15 01:00 | 43,942 |
+| 2026-06-14 17:00 | 7 |
+| 2026-06-14 16:00 | 1 |
+
+The two main spikes correspond directly to the k6 test runs. The `00:00` bucket contains the baseline and stress test traffic (both running locally but writing to the production Supabase instance). The `01:00` bucket is the production test hitting the live VPS via Cloudflare.
 
 ### Data integrity check: counter_cached vs actual log entries
 
 | short_code | counter_cached | log_entries | delta |
 |---|---|---|---|
-| 9 | 60,585 | 60,585 | 0 |
+| 9 | 214,585 | 214,585 | 0 |
 | 8 | 22,127 | 22,127 | 0 |
 | c | 4,484 | 4,484 | 0 |
 | b | 4,476 | 4,476 | 0 |
+| Z | 4,451 | 4,451 | 0 |
+| a | 4,429 | 4,429 | 0 |
 
-All counters match their corresponding `click_logs` row counts. The Redis-to-PostgreSQL batch sync produced no data loss or double-counting across 123,669 events.
+All counters match their corresponding `click_logs` row counts exactly. The Redis-to-PostgreSQL batch sync produced no data loss or double-counting across 280,672 events.
+
+---
+
+## Documentation
+
+The `/docs` folder contains supporting evidence and planning artifacts referenced throughout this README.
+
+```
+docs/
+├── k6_testing/
+│   ├── benchmarks/
+│   │   ├── test-1-baseline.png       # k6 terminal output — 50 VU baseline
+│   │   ├── test-2-stress.png         # k6 terminal output — 500 VU stress
+│   │   └── test-3-production.png     # k6 terminal output — 100 VU production
+│   └── database/
+│       └── database-overview.md      # Raw SQL query results from Supabase
+└── PLANNING.md                       # PRD, architecture diagrams, ERD, API contracts,
+                                      # sequence diagrams, and caching strategy
+```
 
 ---
 
