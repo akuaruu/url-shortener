@@ -2,77 +2,111 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend, Rate } from 'k6/metrics';
 
-// --- CUSTOM METRICS ---
-// Kita pisahkan metrik ini agar mudah dibaca di terminal nanti
+// ─── CUSTOM METRICS 
 export const redirectLatency = new Trend('redirect_duration');
 export const successRate = new Rate('successful_redirects');
 
-// --- KONFIGURASI SIKSAAN (STAGES) ---
-export const options = {
-    // Skenario bertahap agar lebih realistis seperti lonjakan trafik asli
-    stages: [
-        { duration: '10s', target: 1 },  // Pemanasan: Naik ke 20 VU (sesuai limit Supabase)
-        { duration: '30s', target: 5 }, // Puncak: Hajar dengan 100 VU secara bersamaan
-        { duration: '10s', target: 0 },   // Pendinginan: Turun perlahan ke 0 VU
-    ],
-    thresholds: {
-        // Ini adalah KPI (Key Performance Indicator) targetmu!
-        // Jika latensi 95% request tembus di atas 50ms, k6 akan memberikan status FAIL.
-        'redirect_duration': ['p(95)<80'],
-        'successful_redirects': ['rate>0.99'], // 99% request harus tidak error (harus status 302)
+// ─── ENVIRONMENT 
+// Usage:
+//   Local baseline : k6 run -e TEST=baseline loadtest.js
+//   Local stress   : k6 run -e TEST=stress   loadtest.js
+//   Production     : k6 run -e TEST=prod     loadtest.js
+const TEST = __ENV.TEST || 'baseline';
+const IS_PROD = TEST === 'prod';
+const BASE_URL = IS_PROD
+    ? 'https://url-s.aruu.app'
+    : 'http://localhost:8080';
+
+// ─── STAGES & THRESHOLDS per TEST
+const CONFIGS = {
+    baseline: {
+        stages: [
+            { duration: '15s', target: 10 },   // ramp up
+            { duration: '30s', target: 50 },   // hold
+            { duration: '10s', target: 0 },   // cool down
+        ],
+        thresholds: {
+            'redirect_duration': ['p(95)<10'],    // Redis cache hit harusnya <10ms lokal
+            'successful_redirects': ['rate>0.99'],
+        },
+    },
+    stress: {
+        stages: [
+            { duration: '10s', target: 50 },
+            { duration: '30s', target: 200 },
+            { duration: '30s', target: 500 },  // titik sistem mulai kesakitan
+            { duration: '15s', target: 0 },
+        ],
+        thresholds: {
+            'redirect_duration': ['p(95)<50'],    // sedikit longgar untuk stress
+            'successful_redirects': ['rate>0.95'],
+        },
+    },
+    prod: {
+        stages: [
+            { duration: '15s', target: 10 },
+            { duration: '30s', target: 50 },
+            { duration: '30s', target: 100 },  // spike moderat, ada network latency
+            { duration: '15s', target: 0 },
+        ],
+        thresholds: {
+            'redirect_duration': ['p(95)<100'],   // realistis dengan network + Cloudflare
+            'successful_redirects': ['rate>0.99'],
+        },
     },
 };
 
-// --- FASE SETUP (Dijalankan 1x sebelum VU menyerang) ---
+export const options = CONFIGS[TEST];
+
+// ─── SETUP (dijalankan 1x sebelum VU menyerang
 export function setup() {
+    const url = `${BASE_URL}/api/v1/shorten`;
 
-    //const url = 'https://url-s.aruu.app/api/v1/shorten';
-    //Local testing :
-    const url = 'http://localhost:8080/api/v1/shorten';
-
+    // Didefinisikan di sini agar tidak ReferenceError
     const payload = JSON.stringify({
         original_url: 'https://aruu.app/portfolio',
-        ttl_seconds: 86400
+        ttl_seconds: 86400,
     });
-
     const params = {
         headers: { 'Content-Type': 'application/json' },
     };
 
-    const res = http.post(url, payload, params);
-
-    if (res.status !== 201 && res.status !== 200) {
-        console.error(`Setup GAGAL! Pastikan gateway nyala. Status: ${res.status}, Body: ${res.body}`);
+    // Buat 10 short code berbeda agar hit pattern lebih realistis
+    const codes = [];
+    for (let i = 0; i < 10; i++) {
+        const res = http.post(url, payload, params);
+        if (res.status !== 201 && res.status !== 200) {
+            console.error(`[Setup] GAGAL iterasi ${i} — status: ${res.status}, body: ${res.body}`);
+            continue;
+        }
+        const body = JSON.parse(res.body);
+        codes.push(body.short_code);
     }
 
-    // Mengambil short_code dari respons JSON
-    const shortCode = JSON.parse(res.body).short_code;
-    console.log(`[Setup OK] Berhasil membuat URL pendek: ${shortCode}. Memulai siksaan...`);
+    if (codes.length === 0) {
+        throw new Error('[Setup] Tidak ada short code yang berhasil dibuat. Pastikan gateway nyala.');
+    }
 
-    return { shortCode: shortCode }; // Oper data ini ke pasukan VU
+    console.log(`[Setup OK] ${codes.length} short codes: [${codes.join(', ')}] | ENV=${IS_PROD ? 'production' : 'local'} | TEST=${TEST}`);
+    return { codes };
 }
 
-// --- FASE UTAMA (Dijalankan ribuan kali oleh pasukan VU) ---
+// ─── MAIN (dijalankan ribuan kali oleh pasukan VU) 
 export default function (data) {
-    // Pasukan VU akan menembak short_code yang dibuat di fase setup
-    //const url = `http://url-s.aruu.app/${data.shortCode}`;
+    // Randomize agar setiap VU tidak selalu hit key yang sama
+    const code = data.codes[Math.floor(Math.random() * data.codes.length)];
+    const url = `${BASE_URL}/${code}`;
 
-    // Local testing:
-    const url = `http://localhost:8080/${data.shortCode}`;
-
-    // PENTING: redirects: 0 agar k6 tidak ikut pindah ke URL asli
+    // redirects: 0 — k6 tidak ikut redirect, kita ukur response 302-nya
     const res = http.get(url, { redirects: 0 });
 
-    // Mencatat metrik kustom
     redirectLatency.add(res.timings.duration);
     successRate.add(res.status === 302);
 
-    // Validasi respons harus 302 dan memiliki header Location
     check(res, {
         'is status 302': (r) => r.status === 302,
         'has location header': (r) => r.headers['Location'] !== undefined,
     });
 
-    // mimicking human
-    sleep(0.05);
+    sleep(0.05); // mimicking human think time
 }
